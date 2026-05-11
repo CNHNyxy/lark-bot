@@ -1,0 +1,28 @@
+# lark-bot 配置文件
+# 复制到 ~/.lark-bot/config.yaml 或项目目录下 lark-bot.yaml
+
+# 数据目录
+projects_root: ~/lark-projects
+sessions_file: ~/.lark-bot/sessions.json
+log_dir: ~/.lark-bot/logs
+
+# Claude 配置
+claude:
+  model: claude-sonnet-4-6
+  timeout: 300
+  env:
+    ANTHROPIC_AUTH_TOKEN: sk-your-api-key-here
+    ANTHROPIC_BASE_URL: https://api.anthropic.com  # 或自定义端点
+
+# Lark 配置
+lark:
+  # app_id 从 lark-cli config 自动读取，或显式配置
+  # app_id: cli_xxx
+
+# Skills 配置
+skills:
+  global_dir: ~/.claude/skills
+
+# 守护进程配置
+daemon:
+  restart_delay: 5  # 崩溃后重启延迟（秒）
