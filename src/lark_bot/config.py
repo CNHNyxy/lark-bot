@@ -26,7 +26,9 @@ DEFAULT_CONFIG = {
 
 CONFIG_SEARCH_PATHS = [
     Path("./lark-bot.yaml"),
+    Path("./lark-bot.yml"),
     Path("~/.lark-bot/config.yaml").expanduser(),
+    Path("~/.lark-bot/config.yml").expanduser(),
 ]
 
 
@@ -39,6 +41,19 @@ def load_config(config_path: str | None = None) -> dict:
         config_path = os.environ["LARK_BOT_CONFIG"]
 
     if config_path:
+        # Instance configs (for example ~/.lark-bot/prod/config.yaml) inherit
+        # shared settings such as claude.model/env from the global config.
+        explicit_path = Path(config_path).expanduser()
+        for global_path in [
+            Path("~/.lark-bot/config.yaml").expanduser(),
+            Path("~/.lark-bot/config.yml").expanduser(),
+        ]:
+            if global_path.exists() and global_path.resolve() != explicit_path.resolve():
+                with open(global_path) as f:
+                    user_cfg = yaml.safe_load(f) or {}
+                _deep_merge(cfg, user_cfg)
+                break
+
         path = Path(config_path).expanduser()
         if path.exists():
             with open(path) as f:
