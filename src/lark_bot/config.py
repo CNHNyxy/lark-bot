@@ -33,6 +33,10 @@ CONFIG_SEARCH_PATHS = [
 def load_config(config_path: str | None = None) -> dict:
     """加载配置文件，合并默认值。"""
     cfg = deepcopy(DEFAULT_CONFIG)
+    source_path = None
+
+    if config_path is None and os.environ.get("LARK_BOT_CONFIG"):
+        config_path = os.environ["LARK_BOT_CONFIG"]
 
     if config_path:
         path = Path(config_path).expanduser()
@@ -40,12 +44,14 @@ def load_config(config_path: str | None = None) -> dict:
             with open(path) as f:
                 user_cfg = yaml.safe_load(f) or {}
             _deep_merge(cfg, user_cfg)
+            source_path = path
     else:
         for path in CONFIG_SEARCH_PATHS:
             if path.exists():
                 with open(path) as f:
                     user_cfg = yaml.safe_load(f) or {}
                 _deep_merge(cfg, user_cfg)
+                source_path = path
                 break
 
     # 环境变量覆盖
@@ -53,6 +59,8 @@ def load_config(config_path: str | None = None) -> dict:
         cfg["projects_root"] = os.environ["LARK_BOT_PROJECTS_ROOT"]
     if os.environ.get("LARK_BOT_SESSIONS_FILE"):
         cfg["sessions_file"] = os.environ["LARK_BOT_SESSIONS_FILE"]
+    if source_path is not None:
+        cfg["_config_path"] = str(source_path.expanduser().resolve())
 
     return cfg
 

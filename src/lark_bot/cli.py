@@ -445,6 +445,10 @@ def _run_daemon(cfg: dict, no_daemon: bool):
     log_file = log_dir / "bot.log"
 
     restart_delay = cfg.get("daemon", {}).get("restart_delay", 5)
+    profile = cfg.get("profile")
+    child_env = os.environ.copy()
+    if cfg.get("_config_path"):
+        child_env["LARK_BOT_CONFIG"] = cfg["_config_path"]
 
     lark_proc = None
     bot_proc = None
@@ -461,13 +465,18 @@ def _run_daemon(cfg: dict, no_daemon: bool):
                 stdin_pipe = os.fdopen(stdin_pipe_r, "r")
 
                 # 启动 lark-cli 事件流
+                lark_cmd = ["lark-cli"]
+                if profile:
+                    lark_cmd += ["--profile", profile]
+                lark_cmd += ["event", "consume", "im.message.receive_v1",
+                             "--as", "bot", "--max-events", "0"]
                 lark_proc = subprocess.Popen(
-                    ["lark-cli", "event", "consume", "im.message.receive_v1",
-                     "--as", "bot", "--max-events", "0"],
+                    lark_cmd,
                     stdin=stdin_pipe,
                     stdout=subprocess.PIPE,
                     stderr=log_file.open("a"),
                     text=True,
+                    env=child_env,
                 )
                 stdin_pipe.close()  # 子进程已继承，关闭父进程的读取端
                 # stdin_pipe_w 不关闭，保持 stdin 打开，防止 lark-cli 退出
@@ -479,6 +488,7 @@ def _run_daemon(cfg: dict, no_daemon: bool):
                     stdout=log_file.open("a"),
                     stderr=log_file.open("a"),
                     text=True,
+                    env=child_env,
                 )
                 # 关闭 lark_proc.stdout 的引用，让 bot_proc 能收到 EOF
                 lark_proc.stdout.close()

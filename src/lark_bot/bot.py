@@ -54,8 +54,13 @@ PAGE_SIZE = 5
 
 def send_reply(chat_id: str, text: str):
     """发送消息回复。"""
+    _init_globals()
+    cmd = ["lark-cli"]
+    if _config.get("profile"):
+        cmd += ["--profile", _config["profile"]]
+    cmd += ["im", "+messages-send", "--as", "bot", "--chat-id", chat_id, "--text", text]
     subprocess.run(
-        ["lark-cli", "im", "+messages-send", "--as", "bot", "--chat-id", chat_id, "--text", text],
+        cmd,
         check=True, stdin=subprocess.DEVNULL,
     )
 
