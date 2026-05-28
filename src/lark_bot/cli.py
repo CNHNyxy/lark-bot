@@ -4,6 +4,7 @@ import sys
 import os
 import io
 import subprocess
+import threading
 import time
 import signal
 import datetime
@@ -23,10 +24,11 @@ def main():
 @main.command()
 @click.option("--config", "-c", "config_path", help="配置文件路径")
 @click.option("--no-daemon", is_flag=True, help="单次运行（不自动重启）")
-def start(config_path, no_daemon):
+@click.option("--verbose", "-v", is_flag=True, help="同时输出日志到控制台")
+def start(config_path, no_daemon, verbose):
     """启动 bot 服务（自带进程守护）。"""
     cfg = load_config(config_path)
-    _run_daemon(cfg, no_daemon)
+    _run_daemon(cfg, no_daemon, verbose)
 
 
 @main.command()
@@ -438,7 +440,17 @@ def import_backup(backup_file):
     click.echo("  lark-bot doctor")
 
 
-def _run_daemon(cfg: dict, no_daemon: bool):
+def _tee_pipe(pipe, log_fh, stream):
+    """从 pipe 读取数据，同时写入日志文件和控制台。"""
+    for line in pipe:
+        log_fh.write(line)
+        log_fh.flush()
+        stream.write(line)
+        stream.flush()
+    pipe.close()
+
+
+def _run_daemon(cfg: dict, no_daemon: bool, verbose: bool = False):
     """守护循环：启动 lark-cli 管道 + bot core，崩溃自动重启。"""
     log_dir = Path(expand_path(cfg.get("log_dir", "~/.lark-bot/logs")))
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -459,6 +471,8 @@ def _run_daemon(cfg: dict, no_daemon: bool):
             click.echo("[lark-bot] 启动服务...")
 
             try:
+                log_fh = log_file.open("a")
+
                 # lark-cli 把 stdin EOF 视为退出信号，必须保持 stdin 打开
                 # 用管道代替 DEVNULL，写入端不关闭即可保持打开
                 stdin_pipe_r, stdin_pipe_w = os.pipe()
@@ -470,26 +484,63 @@ def _run_daemon(cfg: dict, no_daemon: bool):
                     lark_cmd += ["--profile", profile]
                 lark_cmd += ["event", "consume", "im.message.receive_v1",
                              "--as", "bot", "--max-events", "0"]
-                lark_proc = subprocess.Popen(
-                    lark_cmd,
-                    stdin=stdin_pipe,
-                    stdout=subprocess.PIPE,
-                    stderr=log_file.open("a"),
-                    text=True,
-                    env=child_env,
-                )
+
+                if verbose:
+                    lark_proc = subprocess.Popen(
+                        lark_cmd,
+                        stdin=stdin_pipe,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        env=child_env,
+                    )
+                    threading.Thread(
+                        target=_tee_pipe,
+                        args=(lark_proc.stderr, log_fh, sys.stderr),
+                        daemon=True,
+                    ).start()
+                else:
+                    lark_proc = subprocess.Popen(
+                        lark_cmd,
+                        stdin=stdin_pipe,
+                        stdout=subprocess.PIPE,
+                        stderr=log_fh,
+                        text=True,
+                        env=child_env,
+                    )
+
                 stdin_pipe.close()  # 子进程已继承，关闭父进程的读取端
                 # stdin_pipe_w 不关闭，保持 stdin 打开，防止 lark-cli 退出
 
                 # 启动 bot core（从 stdin 读取事件）
-                bot_proc = subprocess.Popen(
-                    [sys.executable, "-m", "lark_bot.bot"],
-                    stdin=lark_proc.stdout,
-                    stdout=log_file.open("a"),
-                    stderr=log_file.open("a"),
-                    text=True,
-                    env=child_env,
-                )
+                if verbose:
+                    bot_proc = subprocess.Popen(
+                        [sys.executable, "-m", "lark_bot.bot"],
+                        stdin=lark_proc.stdout,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        env=child_env,
+                    )
+                    threading.Thread(
+                        target=_tee_pipe,
+                        args=(bot_proc.stdout, log_fh, sys.stderr),
+                        daemon=True,
+                    ).start()
+                    threading.Thread(
+                        target=_tee_pipe,
+                        args=(bot_proc.stderr, log_fh, sys.stderr),
+                        daemon=True,
+                    ).start()
+                else:
+                    bot_proc = subprocess.Popen(
+                        [sys.executable, "-m", "lark_bot.bot"],
+                        stdin=lark_proc.stdout,
+                        stdout=log_fh,
+                        stderr=log_fh,
+                        text=True,
+                        env=child_env,
+                    )
                 # 关闭 lark_proc.stdout 的引用，让 bot_proc 能收到 EOF
                 lark_proc.stdout.close()
 
